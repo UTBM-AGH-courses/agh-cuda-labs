@@ -7,12 +7,13 @@
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 4096
+#define MAX_BINS 1024
 #define DATA_SIZE 256
 #define WARP_SIZE 32
 #define MAX_BLOCKS 1024
 
-__global__ static void histogramKernel(unsigned int *inputArray, unsigned int *histogram, int unsigned dataSize, int unsigned binSize)
+__global__ 
+static void histogramKernel(unsigned int *inputArray, unsigned int *histogram, int unsigned dataSize, int unsigned binSize)
 {
     int th = blockIdx.x * blockDim.x + threadIdx.x;
     extern __shared__ int local_histogram[];
@@ -36,9 +37,23 @@ __global__ static void histogramKernel(unsigned int *inputArray, unsigned int *h
     }
 }
 
-void printResult(unsigned int *result, unsigned int resultSize)
+__global__ 
+static void cleanHistogram(unsigned int *histogram, int unsigned binSize)
 {
-    printf("Result : [");
+    for (int bin = threadIdx.x; bin < binSize; bin += blockDim.x)
+    {
+        histogram[bin] = 0;
+    }
+    __syncthreads();
+
+}
+
+
+
+
+void printResult(unsigned int *result, unsigned int resultSize, int threadCount)
+{
+    printf("Result for %d threads: [", threadCount);
     for (int i = 0; i < resultSize; i++)
     {
         printf("%d", result[i]);
@@ -70,10 +85,23 @@ void printData(unsigned int *data, unsigned int dataSize)
     }
 }
 
+bool compareResults(unsigned int *array1, unsigned int *array2, int size)
+{
+    for(int i = 0; i<size; i++)
+    {
+	if (array1[i] != array2[i])
+	{
+	    return false;
+	}
+    }
+    return true;
+}
+
 
 void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
 {
-    unsigned int *histogram = NULL;
+    unsigned int *histogram_t = NULL;
+    unsigned int *histogram_one = NULL;
     unsigned int *d_histogram = NULL;
     unsigned int *data = NULL;
     unsigned int *d_data = NULL;
@@ -82,17 +110,26 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
     cudaEvent_t start_one;
     cudaEvent_t stop_t;
     cudaEvent_t stop_one;
- 
+
     // Generate the structures
     data = (unsigned int *)malloc(dataSize * sizeof(unsigned int));
-    histogram = (unsigned int *)malloc(binSize * sizeof(unsigned int));
+    histogram_t = (unsigned int *)malloc(binSize * sizeof(unsigned int));
+    histogram_one = (unsigned int *)malloc(binSize * sizeof(unsigned int));
+
+    if (threadCount > 1024)
+    { 
+ 	threadCount = 1024;
+    }
+
+    // Generate the data    
     printf("Generating data...\n");
-    // Generate the data
+    srand(time(NULL));
     for (int i = 0; i < dataSize; i++)
     {
         data[i] = rand() % binSize;
     }
     printf("Generation done\n");
+    
     // Print the input
     if (display == 1)
     {
@@ -114,11 +151,12 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
     printf("Lauching kernel on %d threads...\n", threadCount);
     // Launch the kernel
     histogramKernel<<<1, threadCount,sizeof(unsigned int) * binSize>>>(d_data, d_histogram, dataSize, binSize);
+    printf("%d\n", sizeof(unsigned int) * binSize);
     cudaDeviceSynchronize();
 
     // Fetch the result
     printf("Kernel ended\n");
-    checkCudaErrors(cudaMemcpy(histogram, d_histogram, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(histogram_t, d_histogram, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
 
     // Record the stop event
     checkCudaErrors(cudaEventRecord(stop_t, NULL));
@@ -130,6 +168,13 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
     checkCudaErrors(cudaEventCreate(&stop_one));
     checkCudaErrors(cudaEventRecord(start_one, NULL));
 
+    // Clean d_histogram
+    printf("Cleaning GPU's histogram...\n");
+    cleanHistogram<<<1, threadCount>>>(d_histogram, binSize);
+    cudaDeviceSynchronize();
+    printf("Cleaning done\n");
+
+
     // Record the start event
     printf("Lauching kernel on 1 thread...\n");
     // Launch the kernel
@@ -138,13 +183,13 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
 
     // Fetch the result
     printf("Kernel ended\n");
+    checkCudaErrors(cudaMemcpy(histogram_one, d_histogram, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
 
     // Record the stop event
     checkCudaErrors(cudaEventRecord(stop_one, NULL));
 
     // Wait for the stop event to complete
     checkCudaErrors(cudaEventSynchronize(stop_one));
-
 
     float msecTotal_t = 0.0f;
     float msecTotal_one = 0.0f;
@@ -156,18 +201,29 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
     // Print the output
     if (display == 1)
     {
-	printResult(histogram, binSize); 
+	printResult(histogram_t, binSize, threadCount); 
+	printResult(histogram_one, binSize, 1); 
     }
-
+    // Compare the results
+    printf("################\n");
+    if (compareResults(histogram_t, histogram_one, binSize))
+    {
+	printf("OK : Both histogram match\n");
+    }
+    else
+    {
+	printf("NOK : Both histogram don't match\n");
+    }
     // Print time enlapsed
     printf("################\n");
     printf("For %d threads :\nCuda processing time = %.3fms, Performance = %.3f GFLOPS\n",threadCount, msecTotal_t, gigaFlops_t);
     printf("For 1 thread :\nCuda processing time = %.3fms, Performance = %.3f GFLOPS\n", msecTotal_one, gigaFlops_one);
     
-    free(histogram);
+    free(histogram_t);
+    free(histogram_one);
     free(data);
-    cudaFree(d_data);
-    cudaFree(d_histogram);
+    checkCudaErrors(cudaFree(d_data));
+    checkCudaErrors(cudaFree(d_histogram));
 }
 
 int main(int argc, char **argv)
@@ -176,10 +232,15 @@ int main(int argc, char **argv)
     unsigned long long u_dataSize = DATA_SIZE;
     int display = 0;
     char *dataSize = NULL;
+    cudaDeviceProp prop;
+
+    system("clear");
     
     // Get the device    
     int dev = findCudaDevice(argc, (const char **)argv);
-    
+    cudaGetDeviceProperties(&prop, dev);
+    printf("%d\n", prop.sharedMemPerMultiprocessor);
+
     // Get the inputs
     if (checkCmdLineFlag(argc, (const char **)argv, "help") ||
         checkCmdLineFlag(argc, (const char **)argv, "?"))
@@ -190,7 +251,6 @@ int main(int argc, char **argv)
 
         exit(EXIT_SUCCESS);
     }
-
     printf("CUDA - Histogramming algorithm\n");
 
     if (checkCmdLineFlag(argc, (const char **)argv, "dSize"))
