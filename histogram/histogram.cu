@@ -7,49 +7,7 @@
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 1024
-#define DATA_SIZE 256
-#define WARP_SIZE 32
-#define MAX_BLOCKS 1024
-
-__global__ 
-static void histogramKernel(unsigned int *inputArray, unsigned int *histogram, int unsigned dataSize, int unsigned binSize)
-{
-    int th = blockIdx.x * blockDim.x + threadIdx.x;
-    extern __shared__ int local_histogram[];
-
-    for (int bin = threadIdx.x; bin < binSize; bin += blockDim.x)
-    {
-        local_histogram[bin] = 0;
-    }
-    __syncthreads();
-
-    for (int i = th; i < dataSize; i += blockDim.x * gridDim.x)
-    {
-        atomicAdd(&local_histogram[inputArray[i]], 1);
-    }
-
-    __syncthreads();
-
-    for (int bin = th; bin < binSize; bin += blockDim.x)
-    {
-        atomicAdd(&histogram[bin], local_histogram[bin]);
-    }
-}
-
-__global__ 
-static void cleanHistogram(unsigned int *histogram, int unsigned binSize)
-{
-    for (int bin = threadIdx.x; bin < binSize; bin += blockDim.x)
-    {
-        histogram[bin] = 0;
-    }
-    __syncthreads();
-
-}
-
-
-
+#define MAX_BINS 4096
 
 void printResult(unsigned int *result, unsigned int resultSize, int threadCount)
 {
@@ -97,15 +55,51 @@ bool compareResults(unsigned int *array1, unsigned int *array2, int size)
     return true;
 }
 
+__global__ 
+static void histogramKernel(unsigned int *inputArray, unsigned int *histogram, unsigned int dataSize, unsigned int binSize)
+{
+    int th = blockIdx.x * blockDim.x + threadIdx.x;
+    extern __shared__ int local_histogram[];
 
-void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
+    for (int bin = threadIdx.x; bin < binSize; bin += blockDim.x)
+    {
+        local_histogram[bin] = 0;
+    }
+    __syncthreads();
+
+    for (int i = th; i < dataSize; i += blockDim.x * gridDim.x)
+    {
+        atomicAdd(&local_histogram[inputArray[i]], 1);
+    }
+    __syncthreads();
+
+    for (int bin = threadIdx.x; bin < binSize; bin += blockDim.x)
+    {   
+        atomicAdd(&histogram[bin], local_histogram[bin]);
+    }
+
+}
+
+__global__ 
+static void cleanHistogram(unsigned int *histogram, unsigned int binSize)
+{
+    for (int bin = threadIdx.x; bin < binSize; bin += blockDim.x)
+    {
+        histogram[bin] = 0;
+    }
+    __syncthreads();
+
+}
+
+
+
+void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, int threadCount, int blockCount)
 {
     unsigned int *histogram_t = NULL;
     unsigned int *histogram_one = NULL;
     unsigned int *d_histogram = NULL;
     unsigned int *data = NULL;
     unsigned int *d_data = NULL;
-    int threadCount = (dataSize/WARP_SIZE);
     cudaEvent_t start_t;
     cudaEvent_t start_one;
     cudaEvent_t stop_t;
@@ -115,11 +109,6 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
     data = (unsigned int *)malloc(dataSize * sizeof(unsigned int));
     histogram_t = (unsigned int *)malloc(binSize * sizeof(unsigned int));
     histogram_one = (unsigned int *)malloc(binSize * sizeof(unsigned int));
-
-    if (threadCount > 1024)
-    { 
- 	threadCount = 1024;
-    }
 
     // Generate the data    
     printf("Generating data...\n");
@@ -150,8 +139,7 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
     // Record the start event
     printf("Lauching kernel on %d threads...\n", threadCount);
     // Launch the kernel
-    histogramKernel<<<1, threadCount,sizeof(unsigned int) * binSize>>>(d_data, d_histogram, dataSize, binSize);
-    printf("%d\n", sizeof(unsigned int) * binSize);
+    histogramKernel<<<blockCount, threadCount,sizeof(unsigned int) * binSize>>>(d_data, d_histogram, dataSize, binSize);
     cudaDeviceSynchronize();
 
     // Fetch the result
@@ -229,8 +217,11 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display)
 int main(int argc, char **argv)
 {
     unsigned int binSize = MAX_BINS;
-    unsigned long long u_dataSize = DATA_SIZE;
+    unsigned long long u_dataSize = 256;
     int display = 0;
+    int smCount;
+    int sharedMemoryPerSm;
+    int warpSize;
     char *dataSize = NULL;
     cudaDeviceProp prop;
 
@@ -239,7 +230,9 @@ int main(int argc, char **argv)
     // Get the device    
     int dev = findCudaDevice(argc, (const char **)argv);
     cudaGetDeviceProperties(&prop, dev);
-    printf("%d\n", prop.sharedMemPerMultiprocessor);
+    sharedMemoryPerSm = prop.sharedMemPerMultiprocessor;
+    smCount = prop.multiProcessorCount;
+    warpSize = prop.warpSize;
 
     // Get the inputs
     if (checkCmdLineFlag(argc, (const char **)argv, "help") ||
@@ -266,14 +259,15 @@ int main(int argc, char **argv)
     }
 
 
-    printf("Length of the data : %lu\n", u_dataSize);
+    printf("Data length : %lu\n", u_dataSize);
     if (u_dataSize >= 4294967296 || u_dataSize == 0) {
         printf("Error: Data size must be < 4,294,967,296. Actual: %lu\n", u_dataSize);
         exit(EXIT_FAILURE);
     }
 
-
-    histogramWrapper(u_dataSize, binSize, display);
+    int threadCount = min(((int)u_dataSize*warpSize), 1024);
+    int blockCount = smCount * 128;
+    histogramWrapper(u_dataSize, binSize, display, threadCount, blockCount);
     
     return EXIT_SUCCESS;
 }
