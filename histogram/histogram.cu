@@ -202,8 +202,8 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     }
     // Print time enlapsed
     printf("################\n");
-    printf("For %d threads :\nCuda processing time = %.3fms, Performance = %.3f GFLOPS\n",threadCount, msecTotal_t, gigaFlops_t);
-    printf("For 1 thread :\nCuda processing time = %.3fms, Performance = %.3f GFLOPS\n", msecTotal_one, gigaFlops_one);
+    printf("For %d threads :\nCuda processing time = %.3fms, Performance = %.3f GFlop/s\n",threadCount, msecTotal_t, gigaFlops_t);
+    printf("For 1 thread :\nCuda processing time = %.3fms, Performance = %.3f GFlop/s\n", msecTotal_one, gigaFlops_one);
     
 
     // Free all the memory spaces
@@ -266,7 +266,7 @@ int main(int argc, char **argv)
     }
 
     int threadCount = min(((int)u_dataSize*warpSize), 1024);
-    int blockCount = smCount * u_dataSize;
+    int blockCount = smCount * 128;
     histogramWrapper(u_dataSize, binSize, display, threadCount, blockCount);
     
     return EXIT_SUCCESS;

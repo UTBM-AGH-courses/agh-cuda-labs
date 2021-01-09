@@ -38,7 +38,7 @@ When using shared memory we have to be sure to have all our threads synchronize 
 
 ## Speed up the code execution
 
-To speed up the code execution, we need to take care to use a numer of `threads` which is a mutiple of the *warp size* of our **DEVICE**. This indeed allow the threads to be more *groupebale* when executed by the hardware. The second important aspect is to maximize the occupency. In other words trying to avoid too much threads (1024T on 2B for example) or too much blocks (64T on 512B for example)
+To speed up the code execution, we need to take care to use a numer of `threads` which is a mutiple of the *warp size* of our **DEVICE**. This indeed allows the threads to be more *groupebale* when executed by the hardware because they will be lauched by groups of the *warp size* (32 for compute capability 7.5). The second important aspect is to maximize the occupency. In other words trying to avoid too much threads (1024T on 2B for example) or too much blocks (16T on 1024B for example). Finnaly, the block count needs to be a multiple of the multi-processor count. So by running the program multiple times, I chose to pick `min(INPUT_ARRAY_LENGTH*WARP_SIZE, 1024)` threads and `MULTIPROCESSOR_COUNT*128`. These gave me the best results in term of performances (GFlop/s)
 
 
 ## Comment on shared memory
