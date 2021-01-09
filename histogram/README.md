@@ -5,7 +5,7 @@
 This algorithm is entended to create an histogram by taking in input an array of integer with a length given by the user (by default set at 256). 
 
 The kernel used to create the histogram is run two times :
-* First time : Running on `1` block of `min(INPUT_ARRAY_LENGTH/32, 1024)` threads
+* First time : Running on `MULTIPROCESSOR_COUNT*128` block of `min(INPUT_ARRAY_LENGTH*WARP_SIZE, 1024)` threads
 * Second time : Running on `1` block of `1` thread
 
 To finish, we compare the both histograms, the process time and the performances.

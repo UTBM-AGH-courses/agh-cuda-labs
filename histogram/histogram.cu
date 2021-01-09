@@ -122,7 +122,7 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     // Print the input
     if (display == 1)
     {
-	printData(data, dataSize);
+	    printData(data, dataSize);
     }
 
     // Assing memory on device
@@ -132,13 +132,13 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     // Copy the data
     checkCudaErrors(cudaMemcpy(d_data, data, sizeof(unsigned int) * dataSize, cudaMemcpyHostToDevice));
 
+    // Record the start event for the first kernel
     checkCudaErrors(cudaEventCreate(&start_t));
     checkCudaErrors(cudaEventCreate(&stop_t));
     checkCudaErrors(cudaEventRecord(start_t, NULL));
 
-    // Record the start event
+    // Launch the first kernel
     printf("Lauching kernel on %d threads...\n", threadCount);
-    // Launch the kernel
     histogramKernel<<<blockCount, threadCount,sizeof(unsigned int) * binSize>>>(d_data, d_histogram, dataSize, binSize);
     cudaDeviceSynchronize();
 
@@ -146,15 +146,9 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     printf("Kernel ended\n");
     checkCudaErrors(cudaMemcpy(histogram_t, d_histogram, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
 
-    // Record the stop event
+    // Record the stop event for the first event
     checkCudaErrors(cudaEventRecord(stop_t, NULL));
-
-    // Wait for the stop event to complete
     checkCudaErrors(cudaEventSynchronize(stop_t));
-
-    checkCudaErrors(cudaEventCreate(&start_one));
-    checkCudaErrors(cudaEventCreate(&stop_one));
-    checkCudaErrors(cudaEventRecord(start_one, NULL));
 
     // Clean d_histogram
     printf("Cleaning GPU's histogram...\n");
@@ -162,10 +156,14 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     cudaDeviceSynchronize();
     printf("Cleaning done\n");
 
+    // Record the start event for the second kernel
+    checkCudaErrors(cudaEventCreate(&start_one));
+    checkCudaErrors(cudaEventCreate(&stop_one));
+    checkCudaErrors(cudaEventRecord(start_one, NULL));
 
-    // Record the start event
+
+    // Launch the second kernel
     printf("Lauching kernel on 1 thread...\n");
-    // Launch the kernel
     histogramKernel<<<1, 1,sizeof(unsigned int) * binSize>>>(d_data, d_histogram, dataSize, binSize);
     cudaDeviceSynchronize();
 
@@ -173,12 +171,12 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     printf("Kernel ended\n");
     checkCudaErrors(cudaMemcpy(histogram_one, d_histogram, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
 
-    // Record the stop event
+    // Record the stop event for the second kerbel
     checkCudaErrors(cudaEventRecord(stop_one, NULL));
-
-    // Wait for the stop event to complete
     checkCudaErrors(cudaEventSynchronize(stop_one));
 
+
+    // Compute the results
     float msecTotal_t = 0.0f;
     float msecTotal_one = 0.0f;
     checkCudaErrors(cudaEventElapsedTime(&msecTotal_t, start_t, stop_t));
@@ -189,24 +187,26 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     // Print the output
     if (display == 1)
     {
-	printResult(histogram_t, binSize, threadCount); 
-	printResult(histogram_one, binSize, 1); 
+        printResult(histogram_t, binSize, threadCount); 
+        printResult(histogram_one, binSize, 1); 
     }
     // Compare the results
     printf("################\n");
     if (compareResults(histogram_t, histogram_one, binSize))
     {
-	printf("OK : Both histogram match\n");
+	    printf("OK : Both histogram match\n");
     }
     else
     {
-	printf("NOK : Both histogram don't match\n");
+	    printf("NOK : Both histogram don't match\n");
     }
     // Print time enlapsed
     printf("################\n");
     printf("For %d threads :\nCuda processing time = %.3fms, Performance = %.3f GFLOPS\n",threadCount, msecTotal_t, gigaFlops_t);
     printf("For 1 thread :\nCuda processing time = %.3fms, Performance = %.3f GFLOPS\n", msecTotal_one, gigaFlops_one);
     
+
+    // Free all the memory spaces
     free(histogram_t);
     free(histogram_one);
     free(data);
@@ -249,7 +249,7 @@ int main(int argc, char **argv)
     if (checkCmdLineFlag(argc, (const char **)argv, "dSize"))
     {
         getCmdLineArgumentString(argc, (const char **)argv, "dSize", &dataSize);
-	u_dataSize = atoll(dataSize);
+        u_dataSize = atoll(dataSize);
 
     }
 
