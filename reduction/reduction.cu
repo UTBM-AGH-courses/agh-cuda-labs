@@ -1,114 +1,134 @@
-#include <stdio.h>
-#include <stdint.h>
-#include <assert.h>
-#include <iostream>
 #include <cuda_runtime.h>
 
 #include <helper_functions.h>
 #include <helper_cuda.h>
 
-#define MAX_BINS 256
+#include <stdio.h>
+#include <iostream>
+#include <assert.h>
+#include <numeric> 
 
-int singleThreadedSum (float tab[], int len)
+#define MAX_BINS 4096
+
+
+cudaError_t customCudaError(cudaError_t result)
 {
-    int res = 0;
-    for (int i = 0 ; i < len; i++)
+    if (result != cudaSuccess)
     {
-        res += tab[i];
+        fprintf(stderr, "CUDA Runtime Error: %s\n", cudaGetErrorString(result));
+        assert(result == cudaSuccess);
     }
-    return res;
+    return result;
 }
 
-
-
-__global__ 
-static void reductionKernel(const float *input, float *output)
+void printData(unsigned int *data, unsigned int dataSize)
 {
-    extern __shared__ float partSum[];
+    printf("Data to be process : [");
+    for (int i = 0; i < dataSize; i++)
+    {
+        printf("%d", data[i]);
+        if (i != dataSize - 1)
+        {
+            printf("-");
+        }
+        if (i == dataSize - 1)
+        {
+            printf("]\n");
+        }
+    }
+}
+
+__global__
+void reductionKernel(unsigned int *data, unsigned int dataSize, unsigned int* globalData)
+{
+
+    extern __shared__ unsigned int local_sum[];
     unsigned int th = threadIdx.x;
-    partSum[th] = input[th];
-    partSum[th + blockDim.x] = input[th + blockDim.x];
-    for (int stride = blockDim.x; stride > 0 ; stride /= 2)
-    {
-        __syncthreads();
-        partSum[th] += partSum[th+stride];
-    }
+    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Fill with 0 the outbound values 
+    local_sum[th] = (i < dataSize ? data[i] : 0);
+    local_sum[th + blockDim.x] = (i + blockDim.x*gridDim.x < dataSize ? data[i + blockDim.x* gridDim.x] : 0);
+
     __syncthreads();
-    if (th == 0){
-        output[0] = partSum[0];
+
+    // Reduction Loop , Interleaved Addressing
+    for (unsigned int stride = 1; stride < blockDim.x*2; stride *= 2)
+    {
+        int index = 2 * stride * th;
+
+        if (index < blockDim.x*2)
+            local_sum[index] += local_sum[index + stride];
+
+        __syncthreads();
+    }
+
+    // Commit to vram 
+    if (th == 0)
+    {
+        globalData[blockIdx.x] = local_sum[0];
     }
 }
 
-void reductionWrapper(int dataSize, int display, int threadCount, int blockCount)
+
+unsigned int* reductionWrapper(unsigned int* data, unsigned int dataSize, int threadCount, int blockCount)
 {
-    float *input = NULL;
-    float *dinput = NULL;
-    float *doutput = NULL;
-    float *output = NULL;
+    unsigned int* finalSum = NULL;
+    unsigned int* d_finalSum;
+    unsigned int* d_data;
     cudaEvent_t start;
     cudaEvent_t stop;
 
-    // Generate the structures
-    output = (float *)malloc(threadCount * 2 * sizeof(float));
-    input = (float *)malloc(threadCount * 2 * sizeof(float));
+    // Create structures
+    finalSum = (unsigned int *)malloc(sizeof(unsigned int)*blockCount);
 
-    // Generate data
-    for (int i = 0; i < threadCount * 2; i++)
-    {
-        input[i] = rand() % MAX_BINS;
-    }
+    // Assign data into the device
+    customCudaError(cudaMalloc((void**)&d_finalSum, blockCount*sizeof(unsigned int)));
+    customCudaError(cudaMalloc((void**)&d_data, dataSize*sizeof(unsigned int)));
 
-    // Assing memory on device
-    checkCudaErrors(cudaMalloc((void **)&dinput, sizeof(float) * threadCount * 2));
-    checkCudaErrors(cudaMalloc((void **)&doutput, sizeof(float) * threadCount * 2));
-    checkCudaErrors(cudaMemcpy(dinput, input, sizeof(float) * threadCount * 2, cudaMemcpyHostToDevice));
+    // Copy the data
+    customCudaError(cudaMemcpy(d_data, data, sizeof(unsigned int) * dataSize, cudaMemcpyHostToDevice));
+        
+    // Record the start event for the first kernel
+    customCudaError(cudaEventCreate(&start));
+    customCudaError(cudaEventCreate(&stop));
+    customCudaError(cudaEventRecord(start, NULL));
 
+    // Run the kernel
+    printf("Lauching kernel on %d threads / %d blocks...\n", threadCount, blockCount);
+    reductionKernel<<<blockCount, threadCount, 2*threadCount*sizeof(unsigned int)>>>(d_data, dataSize, d_finalSum);
+    customCudaError(cudaDeviceSynchronize());
+    printf("Kernel ended\n");
 
-    // Allocating CUDA events that we'll use for timing
-    checkCudaErrors(cudaEventCreate(&start));
-    checkCudaErrors(cudaEventCreate(&stop));
-    checkCudaErrors(cudaEventRecord(start, NULL));
+    // Fetch the results
+    customCudaError(cudaMemcpy(finalSum, d_finalSum, sizeof(unsigned int) * blockCount, cudaMemcpyDeviceToHost));     
 
-    // Launch the kernel
-    reductionKernel<<<blockCount, threadCount, sizeof(float) *  threadCount * 2>>>(dinput, doutput);
-    cudaDeviceSynchronize();
+    // Record the stop event for the first event
+    customCudaError(cudaEventRecord(stop, NULL)); 
+    customCudaError(cudaEventSynchronize(stop));
 
-    // Record stop event
-    checkCudaErrors(cudaEventRecord(stop, NULL));
-    checkCudaErrors(cudaEventSynchronize(stop));
-
-    // Fetch the data
-    checkCudaErrors(cudaMemcpy(output, doutput, sizeof(float) * threadCount * 2, cudaMemcpyDeviceToHost));
-
-    // Compute results
     float msecTotal = 0.0f;
-    checkCudaErrors(cudaEventElapsedTime(&msecTotal, start, stop));
-    printf("The result of the multithreaded function is: %f \n", output[0]);
-    printf("Elapsed Time for reduction function to complete is : %f msec \n", msecTotal);
+    customCudaError(cudaEventElapsedTime(&msecTotal, start, stop));
+    std::cout << "=> Elapsed cuda time (" << threadCount << "," << blockCount << ") :" << msecTotal << "\n";
 
-    // Run on single thread
-    int singleThreadRes = singleThreadedSum(input, dataSize);
+    // Free the memory
+    customCudaError(cudaFree(d_finalSum));
+    customCudaError(cudaFree(d_data));
 
-    printf("The result on the single thread function is: %d \n", singleThreadRes);
-
-    free(input);
-    free(output);
-    checkCudaErrors(cudaFree(dinput));
-    checkCudaErrors(cudaFree(doutput));
+    return finalSum;
 }
 
-
-int main(int argc, char **argv)
+int main(int argc, char** argv)
 {
-    int display = 0;
+    unsigned int* data = NULL;
     int smCount;
     int sharedMemoryPerSm;
     int warpSize;
-    int dataSize = 256;
+    unsigned int dataSize = 61;
     cudaDeviceProp prop;
 
     system("clear");
-    
+
     // Get the device    
     int dev = findCudaDevice(argc, (const char **)argv);
     cudaGetDeviceProperties(&prop, dev);
@@ -121,21 +141,17 @@ int main(int argc, char **argv)
         checkCmdLineFlag(argc, (const char **)argv, "?"))
     {
         printf("Usage :\n");
-        printf("      -dSize=DATA_SIZE [256] (Length of the vector containing the data)\n");
-        printf("      -v (Display the data)\n");
+        printf("      -dSize=DATA_SIZE [256] (Length of the vector containing the data < 10^8)\n");
+        printf("      -verbose (Display the data and the histogram)\n");
 
         exit(EXIT_SUCCESS);
     }
-    printf("CUDA - Sum reduction algorithm\n");
+    printf("CUDA - Histogramming algorithm\n");
 
-    if (checkCmdLineFlag(argc, (const char **)argv, "dSize")) 
+    // Init Data Size 
+    if (checkCmdLineFlag(argc, (const char**)argv, "dSize")) 
     {
-        dataSize = getCmdLineArgumentInt(argc, (const char **)argv, "dSize");
-        if (dataSize > 2048)
-        {
-            printf("LengthTab is > to the possible number of threads \n");  
-            exit(EXIT_FAILURE);
-        }
+        dataSize = getCmdLineArgumentInt(argc, (const char**)argv, "dSize");
     }
 
     if (checkCmdLineFlag(argc, (const char **)argv, "verbose"))
@@ -143,9 +159,45 @@ int main(int argc, char **argv)
         display = 1;
     }
 
-    int threadCount = dataSize/2;
-    int blockCount = 1;
-    reductionWrapper(dataSize, display, threadCount, blockCount);
+    // Allocating memory space for data
+    data = (unsigned int *)malloc(sizeof(unsigned int)*dataSize);
+
+    // Generate the data
+    printf("Generating data...\n");
+    srand(time(NULL));
+    for (int i = 0; i < dataSize; ++i)
+    {
+        data[i] = rand() % MAX_BINS;
+    }
+    printf("Generation done\n");
+
+    // Print the input
+    if (display == 1)
+    {
+	    printData(data, dataSize);
+    }
+
+    unsigned int threadCount = 16; 
+    unsigned int blockCount  = 2;
     
-    return EXIT_SUCCESS;
+    unsigned int* finalSum = reductionWrapper(data, dataSize, threadCount, blockCount);
+
+    for (int i = 0; i < blockCount; ++i)
+    {
+        printf("%d\n", finalSum[i]);
+    }
+
+    unsigned int result = std::accumulate(finalSum, finalSum + blockCount, (unsigned int)0);
+    unsigned int goodResult = std::accumulate(data, data + dataSize, (unsigned int)0);
+    unsigned int valueToDisplay = 20;
+
+    printf("Value Histo Cuda :\n");
+    std::cout << "-" << result;
+    std::cout << " - Good One  : " << goodResult;
+
+    // Cuda free
+    free(data);
+    free(finalSum);
+
+    exit(EXIT_SUCCESS);
 }

@@ -9,6 +9,16 @@
 
 #define MAX_BINS 4096
 
+cudaError_t customCudaError(cudaError_t result)
+{
+    if (result != cudaSuccess)
+    {
+        fprintf(stderr, "CUDA Runtime Error: %s\n", cudaGetErrorString(result));
+        assert(result == cudaSuccess);
+    }
+    return result;
+}
+
 void printResult(unsigned int *result, unsigned int resultSize, int threadCount)
 {
     printf("Result for %d threads: [", threadCount);
@@ -126,61 +136,61 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     }
 
     // Assing memory on device
-    checkCudaErrors(cudaMalloc((void **)&d_histogram, sizeof(unsigned int) * binSize));
-    checkCudaErrors(cudaMalloc((void **)&d_data, sizeof(unsigned int) * dataSize));
+    customCudaError(cudaMalloc((void **)&d_histogram, sizeof(unsigned int) * binSize));
+    customCudaError(cudaMalloc((void **)&d_data, sizeof(unsigned int) * dataSize));
 
     // Copy the data
-    checkCudaErrors(cudaMemcpy(d_data, data, sizeof(unsigned int) * dataSize, cudaMemcpyHostToDevice));
+    customCudaError(cudaMemcpy(d_data, data, sizeof(unsigned int) * dataSize, cudaMemcpyHostToDevice));
 
     // Record the start event for the first kernel
-    checkCudaErrors(cudaEventCreate(&start_t));
-    checkCudaErrors(cudaEventCreate(&stop_t));
-    checkCudaErrors(cudaEventRecord(start_t, NULL));
+    customCudaError(cudaEventCreate(&start_t));
+    customCudaError(cudaEventCreate(&stop_t));
+    customCudaError(cudaEventRecord(start_t, NULL));
 
     // Launch the first kernel
     printf("Lauching kernel on %d threads / %d blocks...\n", threadCount, blockCount);
     histogramKernel<<<blockCount, threadCount,sizeof(unsigned int) * binSize>>>(d_data, d_histogram, dataSize, binSize);
-    cudaDeviceSynchronize();
+    customCudaError(cudaDeviceSynchronize());
+    printf("Kernel ended\n");
 
     // Fetch the result
-    printf("Kernel ended\n");
-    checkCudaErrors(cudaMemcpy(histogram_t, d_histogram, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
+    customCudaError(cudaMemcpy(histogram_t, d_histogram, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
 
     // Record the stop event for the first event
-    checkCudaErrors(cudaEventRecord(stop_t, NULL));
-    checkCudaErrors(cudaEventSynchronize(stop_t));
+    customCudaError(cudaEventRecord(stop_t, NULL));
+    customCudaError(cudaEventSynchronize(stop_t));
 
     // Clean d_histogram
     printf("Cleaning GPU's histogram...\n");
     cleanHistogram<<<1, threadCount>>>(d_histogram, binSize);
-    cudaDeviceSynchronize();
+    customCudaError(cudaDeviceSynchronize());
     printf("Cleaning done\n");
 
     // Record the start event for the second kernel
-    checkCudaErrors(cudaEventCreate(&start_one));
-    checkCudaErrors(cudaEventCreate(&stop_one));
-    checkCudaErrors(cudaEventRecord(start_one, NULL));
+    customCudaError(cudaEventCreate(&start_one));
+    customCudaError(cudaEventCreate(&stop_one));
+    customCudaError(cudaEventRecord(start_one, NULL));
 
 
     // Launch the second kernel
     printf("Lauching kernel on 1 thread / 1 block...\n");
     histogramKernel<<<1, 1,sizeof(unsigned int) * binSize>>>(d_data, d_histogram, dataSize, binSize);
-    cudaDeviceSynchronize();
+    customCudaError(cudaDeviceSynchronize());
 
     // Fetch the result
     printf("Kernel ended\n");
-    checkCudaErrors(cudaMemcpy(histogram_one, d_histogram, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
+    customCudaError(cudaMemcpy(histogram_one, d_histogram, sizeof(unsigned int) * binSize, cudaMemcpyDeviceToHost));
 
     // Record the stop event for the second kerbel
-    checkCudaErrors(cudaEventRecord(stop_one, NULL));
-    checkCudaErrors(cudaEventSynchronize(stop_one));
+    customCudaError(cudaEventRecord(stop_one, NULL));
+    customCudaError(cudaEventSynchronize(stop_one));
 
 
     // Compute the results
     float msecTotal_t = 0.0f;
     float msecTotal_one = 0.0f;
-    checkCudaErrors(cudaEventElapsedTime(&msecTotal_t, start_t, stop_t));
-    checkCudaErrors(cudaEventElapsedTime(&msecTotal_one, start_one, stop_one));
+    customCudaError(cudaEventElapsedTime(&msecTotal_t, start_t, stop_t));
+    customCudaError(cudaEventElapsedTime(&msecTotal_one, start_one, stop_one));
     double gigaFlops_t = (dataSize * 1.0e-9f) / (msecTotal_t / 1000.0f);
     double gigaFlops_one = (dataSize * 1.0e-9f) / (msecTotal_one / 1000.0f);
 
@@ -210,8 +220,8 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     free(histogram_t);
     free(histogram_one);
     free(data);
-    checkCudaErrors(cudaFree(d_data));
-    checkCudaErrors(cudaFree(d_histogram));
+    customCudaError(cudaFree(d_data));
+    customCudaError(cudaFree(d_histogram));
 }
 
 int main(int argc, char **argv)
@@ -239,8 +249,8 @@ int main(int argc, char **argv)
         checkCmdLineFlag(argc, (const char **)argv, "?"))
     {
         printf("Usage :\n");
-        printf("      -dSize=DATA_SIZE [256] (Length of the vector containing the data)\n");
-        printf("      -v (Display the data and the histogram)\n");
+        printf("      -dSize=DATA_SIZE [256] (Length of the vector containing the data < 2^32)\n");
+        printf("      -verbose (Display the data and the histogram)\n");
 
         exit(EXIT_SUCCESS);
     }
@@ -250,7 +260,6 @@ int main(int argc, char **argv)
     {
         getCmdLineArgumentString(argc, (const char **)argv, "dSize", &dataSize);
         u_dataSize = atoll(dataSize);
-
     }
 
     if (checkCmdLineFlag(argc, (const char **)argv, "verbose"))
