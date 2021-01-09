@@ -22,7 +22,7 @@ int singleThreadedSum (float tab[], int len)
 
 
 __global__ 
-static void reductionKernal(const float *input, float *output)
+static void reductionKernel(const float *input, float *output)
 {
     extern __shared__ float partSum[];
     unsigned int th = threadIdx.x;
@@ -38,20 +38,6 @@ static void reductionKernal(const float *input, float *output)
         output[0] = partSum[0];
     }
 }
-
-
-int main(int argc, char **argv)
-{
-    int lengthTab;
-
-    //Doesn't allow more than 2048 length as 1024 is max threads/block
-    if (lengthTab > 2048){printf("LengthTab is > to the possible number of threads \n");  exit(EXIT_FAILURE);}
-
-
-    std::cout<<std::endl;
-
-}
-
 
 void reductionWrapper(int dataSize, int display, int threadCount, int blockCount)
 {
@@ -84,19 +70,19 @@ void reductionWrapper(int dataSize, int display, int threadCount, int blockCount
     checkCudaErrors(cudaEventRecord(start, NULL));
 
     // Launch the kernel
-    reductionSum<<<NUM_BLOCKS, NUM_THREADS, sizeof(float) *  NUM_THREADS * 2>>>(dinput, doutput);
+    reductionKernel<<<blockCount, threadCount, sizeof(float) *  threadCount * 2>>>(dinput, doutput);
     cudaDeviceSynchronize();
 
     // Record stop event
     checkCudaErrors(cudaEventRecord(stop, NULL));
     checkCudaErrors(cudaEventSynchronize(stop));
-    checkCudaErrors(cudaEventElapsedTime(&msecTotal, start, stop));
 
     // Fetch the data
-    checkCudaErrors(cudaMemcpy(output, doutput, sizeof(float) * NUM_THREADS * 2, cudaMemcpyDeviceToHost));
+    checkCudaErrors(cudaMemcpy(output, doutput, sizeof(float) * threadCount * 2, cudaMemcpyDeviceToHost));
 
     // Compute results
     float msecTotal = 0.0f;
+    checkCudaErrors(cudaEventElapsedTime(&msecTotal, start, stop));
     printf("The result of the multithreaded function is: %f \n", output[0]);
     printf("Elapsed Time for reduction function to complete is : %f msec \n", msecTotal);
 
@@ -144,9 +130,9 @@ int main(int argc, char **argv)
     }
     printf("CUDA - Sum reduction algorithm\n");
 
-    if (checkCmdLineFlag(argc, (const char **)argv, "nb")) 
+    if (checkCmdLineFlag(argc, (const char **)argv, "dSize")) 
     {
-        dataSize = getCmdLineArgumentInt(argc, (const char **)argv, "nb");
+        dataSize = getCmdLineArgumentInt(argc, (const char **)argv, "dSize");
         if (dataSize > 2048)
         {
             printf("LengthTab is > to the possible number of threads \n");  
@@ -157,13 +143,6 @@ int main(int argc, char **argv)
     if (checkCmdLineFlag(argc, (const char **)argv, "verbose"))
     {
         display = 1;
-    }
-
-
-    printf("Data length : %lu\n", u_dataSize);
-    if (u_dataSize >= 4294967296 || u_dataSize == 0) {
-        printf("Error: Data size must be < 4,294,967,296. Actual: %lu\n", u_dataSize);
-        exit(EXIT_FAILURE);
     }
 
     int threadCount = dataSize/2;
