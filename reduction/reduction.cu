@@ -109,7 +109,8 @@ unsigned int* reductionWrapper(unsigned int* data, unsigned int dataSize, int th
 
     float msecTotal = 0.0f;
     customCudaError(cudaEventElapsedTime(&msecTotal, start, stop));
-    std::cout << "=> Elapsed cuda time (" << threadCount << "," << blockCount << ") :" << msecTotal << "\n";
+    double gigaFlops = (dataSize * 1.0e-9f) / (msecTotal / 1000.0f);
+    printf("Cuda processing time = %.3fms, Performance = %.3f GFlop/s\n",threadCount, msecTotal, gigaFlops);
 
     // Free the memory
     customCudaError(cudaFree(d_finalSum));
@@ -147,7 +148,7 @@ int main(int argc, char** argv)
 
         exit(EXIT_SUCCESS);
     }
-    printf("CUDA - Histogramming algorithm\n");
+    printf("CUDA - Redution algorithm\n");
 
     // Init Data Size 
     if (checkCmdLineFlag(argc, (const char**)argv, "dSize")) 
