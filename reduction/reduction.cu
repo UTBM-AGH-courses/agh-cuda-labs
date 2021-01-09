@@ -87,7 +87,7 @@ void reductionWrapper(int dataSize, int display, int threadCount, int blockCount
     printf("Elapsed Time for reduction function to complete is : %f msec \n", msecTotal);
 
     // Run on single thread
-    int singleThreadRes = singleThreadedSum(input, lengthTab);
+    int singleThreadRes = singleThreadedSum(input, dataSize);
 
     printf("The result on the single thread function is: %d \n", singleThreadRes);
 
@@ -95,8 +95,6 @@ void reductionWrapper(int dataSize, int display, int threadCount, int blockCount
     free(output);
     checkCudaErrors(cudaFree(dinput));
     checkCudaErrors(cudaFree(doutput));
-
-    return EXIT_SUCCESS;
 }
 
 
