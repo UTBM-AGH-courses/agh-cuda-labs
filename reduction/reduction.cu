@@ -47,7 +47,7 @@ void reductionKernel(unsigned int *data, unsigned int dataSize, unsigned int* gl
 
     // Fill with 0 the outbound values 
     local_sum[threadIdx.x] = (th < dataSize ? data[th] : 0);
-    local_sum[threadIdx.x + blockDim.x] = (i + blockDim.x*gridDim.x < dataSize ? data[th + blockDim.x* gridDim.x] : 0);
+    local_sum[threadIdx.x + blockDim.x] = (th + blockDim.x*gridDim.x < dataSize ? data[th + blockDim.x* gridDim.x] : 0);
 
     __syncthreads();
 
