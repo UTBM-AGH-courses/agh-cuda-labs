@@ -138,7 +138,7 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
     checkCudaErrors(cudaEventRecord(start_t, NULL));
 
     // Launch the first kernel
-    printf("Lauching kernel on %d threads...\n", threadCount);
+    printf("Lauching kernel on %d threads / %d blocks...\n", threadCount, blockCount);
     histogramKernel<<<blockCount, threadCount,sizeof(unsigned int) * binSize>>>(d_data, d_histogram, dataSize, binSize);
     cudaDeviceSynchronize();
 
@@ -163,7 +163,7 @@ void histogramWrapper(unsigned int dataSize, unsigned int binSize, int display, 
 
 
     // Launch the second kernel
-    printf("Lauching kernel on 1 thread...\n");
+    printf("Lauching kernel on 1 thread / 1 block...\n");
     histogramKernel<<<1, 1,sizeof(unsigned int) * binSize>>>(d_data, d_histogram, dataSize, binSize);
     cudaDeviceSynchronize();
 
