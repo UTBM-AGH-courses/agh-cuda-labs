@@ -43,19 +43,18 @@ void reductionKernel(unsigned int *data, unsigned int dataSize, unsigned int* gl
 {
 
     extern __shared__ unsigned int local_sum[];
-    unsigned int th = threadIdx.x;
-    unsigned int i = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int th = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Fill with 0 the outbound values 
-    local_sum[th] = (i < dataSize ? data[i] : 0);
-    local_sum[th + blockDim.x] = (i + blockDim.x*gridDim.x < dataSize ? data[i + blockDim.x* gridDim.x] : 0);
+    local_sum[threadIdx.x] = (th < dataSize ? data[th] : 0);
+    local_sum[threadIdx.x + blockDim.x] = (i + blockDim.x*gridDim.x < dataSize ? data[th + blockDim.x* gridDim.x] : 0);
 
     __syncthreads();
 
     // Reduction Loop , Interleaved Addressing
     for (unsigned int stride = 1; stride < blockDim.x*2; stride *= 2)
     {
-        int index = 2 * stride * th;
+        int index = 2 * stride * threadIdx.x;
 
         if (index < blockDim.x*2)
             local_sum[index] += local_sum[index + stride];
@@ -198,11 +197,11 @@ int main(int argc, char** argv)
     printf("################\n");
     if (hostResult == deviceResult)
     {
-        printf("OK : Both histogram match\n");
+        printf("OK : Both sum match\n");
     }
     else
     {
-        printf("NOK : Both histogram don't match\n");
+        printf("NOK : Both sum don't match\n");
     }
     printf("################\n");
     printf("Host computed sum = %d\n", hostResult);
