@@ -107,6 +107,7 @@ unsigned int* reductionWrapper(unsigned int* data, unsigned int dataSize, int th
     customCudaError(cudaEventRecord(stop, NULL)); 
     customCudaError(cudaEventSynchronize(stop));
 
+    printf("################\n");
     float msecTotal = 0.0f;
     customCudaError(cudaEventElapsedTime(&msecTotal, start, stop));
     double gigaFlops = (dataSize * 1.0e-9f) / (msecTotal / 1000.0f);
@@ -127,6 +128,7 @@ int main(int argc, char** argv)
     int warpSize;
     unsigned int dataSize = 61;
     int display = 0;
+    unsigned int hostResult = 0;
     cudaDeviceProp prop;
 
     system("clear");
@@ -170,6 +172,7 @@ int main(int argc, char** argv)
     for (int i = 0; i < dataSize; ++i)
     {
         data[i] = rand() % MAX_BINS;
+        hostResult += data[i];
     }
     printf("Generation done\n");
 
@@ -189,13 +192,18 @@ int main(int argc, char** argv)
         printf("%d\n", finalSum[i]);
     }
 
-    unsigned int result = std::accumulate(finalSum, finalSum + blockCount, (unsigned int)0);
-    unsigned int goodResult = std::accumulate(data, data + dataSize, (unsigned int)0);
-    unsigned int valueToDisplay = 20;
+    unsigned int deviceResult = std::accumulate(data, data + dataSize, (unsigned int)0);
 
-    printf("Value Histo Cuda :\n");
-    std::cout << "-" << result;
-    std::cout << " - Good One  : " << goodResult;
+    // Compare the results
+    printf("################\n");
+    if (hostResult == deviceResult)
+    {
+        printf("OK : Both histogram match\n");
+    }
+    else
+    {
+        printf("NOK : Both histogram don't match\n");
+    }
 
     // Cuda free
     free(data);
