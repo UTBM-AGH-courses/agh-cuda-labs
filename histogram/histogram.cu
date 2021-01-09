@@ -266,7 +266,7 @@ int main(int argc, char **argv)
     }
 
     int threadCount = min(((int)u_dataSize*warpSize), 1024);
-    int blockCount = smCount * 128;
+    int blockCount = smCount * u_dataSize;
     histogramWrapper(u_dataSize, binSize, display, threadCount, blockCount);
     
     return EXIT_SUCCESS;
