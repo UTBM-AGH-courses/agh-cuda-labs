@@ -204,6 +204,9 @@ int main(int argc, char** argv)
     {
         printf("NOK : Both histogram don't match\n");
     }
+    printf("################\n");
+    printf("Host computed sum = %d\n", hostResult);
+    printf("Device computed sum = %d\n", deviceResult);
 
     // Cuda free
     free(data);
