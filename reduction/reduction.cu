@@ -125,6 +125,7 @@ int main(int argc, char** argv)
     int sharedMemoryPerSm;
     int warpSize;
     unsigned int dataSize = 61;
+    int display = 0;
     cudaDeviceProp prop;
 
     system("clear");
