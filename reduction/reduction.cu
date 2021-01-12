@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <iostream>
 #include <assert.h>
-#include <numeric> 
+#include <numeric>
 
 #define MAX_BINS 4096
 
@@ -49,23 +49,13 @@ void reductionKernel(unsigned int *data, unsigned int dataSize, unsigned int* gl
     {
         local_sum[threadIdx.x] = data[th];
     }
-    else 
+    else
     {
-        local_sum[threadIdx.x] = 0
-    }
-
-    if (th + blockDim.x*gridDim.x < dataSize)
-    {
-        local_sum[threadIdx.x + blockDim.x] = data[th + blockDim.x*gridDim.x]
-    }
-    else 
-    {
-        local_sum[threadIdx.x + blockDim.x] = 0;
+        local_sum[threadIdx.x] = 0;
     }
 
     __syncthreads();
 
-    // Reduction Loop , Interleaved Addressing
     for (unsigned int stride = 1; stride < blockDim.x*2; stride *= 2)
     {
         int index = 2 * stride * threadIdx.x;
@@ -74,14 +64,14 @@ void reductionKernel(unsigned int *data, unsigned int dataSize, unsigned int* gl
         {
             local_sum[index] += local_sum[index + stride];
         }
-
         __syncthreads();
     }
 
-    // Commit to vram 
-    if (th == 0)
+
+    // Commit to global memory 
+    if (threadIdx.x == 0)
     {
-        globalData[blockIdx.x] = local_sum[0];
+        atomicAdd(&globalData[0], local_sum[threadIdx.x]);
     }
 }
 
@@ -126,7 +116,7 @@ unsigned int* reductionWrapper(unsigned int* data, unsigned int dataSize, int th
     float msecTotal = 0.0f;
     customCudaError(cudaEventElapsedTime(&msecTotal, start, stop));
     double gigaFlops = (dataSize * 1.0e-9f) / (msecTotal / 1000.0f);
-    printf("Cuda processing time = %.3fms, Performance = %.3f GFlop/s\n",threadCount, msecTotal, gigaFlops);
+    printf("Cuda processing time = %.3fms, Performance = %.3f GFlop/s\n", msecTotal, gigaFlops);
 
     // Free the memory
     customCudaError(cudaFree(d_finalSum));
@@ -138,22 +128,14 @@ unsigned int* reductionWrapper(unsigned int* data, unsigned int dataSize, int th
 int main(int argc, char** argv)
 {
     unsigned int* data = NULL;
-    int smCount;
-    int sharedMemoryPerSm;
-    int warpSize;
-    unsigned int dataSize = 61;
+    unsigned int dataSize = 0;
     int display = 0;
     unsigned int hostResult = 0;
-    cudaDeviceProp prop;
 
     system("clear");
 
     // Get the device    
     int dev = findCudaDevice(argc, (const char **)argv);
-    cudaGetDeviceProperties(&prop, dev);
-    sharedMemoryPerSm = prop.sharedMemPerMultiprocessor;
-    smCount = prop.multiProcessorCount;
-    warpSize = prop.warpSize;
 
     // Get the inputs
     if (checkCmdLineFlag(argc, (const char **)argv, "help") ||
@@ -197,17 +179,19 @@ int main(int argc, char** argv)
 	    printData(data, dataSize);
     }
 
-    unsigned int threadCount = 16; 
-    unsigned int blockCount  = 2;
-    
-    unsigned int* finalSum = reductionWrapper(data, dataSize, threadCount, blockCount);
+    double tmpDataSize = dataSize;
 
-    for (int i = 0; i < blockCount; ++i)
+    unsigned int blockCount  = 0;
+    unsigned int blockSize  = 1024;
+
+    while(tmpDataSize > 0)
     {
-        printf("%d\n", finalSum[i]);
+        blockCount++;
+        tmpDataSize -= blockSize;
     }
-
-    unsigned int deviceResult = std::accumulate(data, data + dataSize, (unsigned int)0);
+    
+    unsigned int* finalSum = reductionWrapper(data, dataSize, blockSize, blockCount);
+    unsigned int deviceResult = finalSum[0];
 
     // Compare the results
     printf("################\n");
@@ -220,8 +204,8 @@ int main(int argc, char** argv)
         printf("NOK : Both sum don't match\n");
     }
     printf("################\n");
-    printf("Host computed sum = %d\n", hostResult);
-    printf("Device computed sum = %d\n", deviceResult);
+    printf("Host computed sum = %lu\n", hostResult);
+    printf("Device computed sum = %lu\n", deviceResult);
 
     // Cuda free
     free(data);
