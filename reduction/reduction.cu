@@ -43,11 +43,25 @@ void reductionKernel(unsigned int *data, unsigned int dataSize, unsigned int* gl
 {
 
     extern __shared__ unsigned int local_sum[];
-    unsigned int th = blockIdx.x * blockDim.x + threadIdx.x;
+    int th = blockIdx.x * blockDim.x + threadIdx.x;
 
-    // Fill with 0 the outbound values 
-    local_sum[threadIdx.x] = (th < dataSize ? data[th] : 0);
-    local_sum[threadIdx.x + blockDim.x] = (th + blockDim.x*gridDim.x < dataSize ? data[th + blockDim.x* gridDim.x] : 0);
+    if (th < dataSize)
+    {
+        local_sum[threadIdx.x] = data[th];
+    }
+    else 
+    {
+        local_sum[threadIdx.x] = 0
+    }
+
+    if (th + blockDim.x*gridDim.x < dataSize)
+    {
+        local_sum[threadIdx.x + blockDim.x] = data[th + blockDim.x*gridDim.x]
+    }
+    else 
+    {
+        local_sum[threadIdx.x + blockDim.x] = 0;
+    }
 
     __syncthreads();
 
@@ -57,7 +71,9 @@ void reductionKernel(unsigned int *data, unsigned int dataSize, unsigned int* gl
         int index = 2 * stride * threadIdx.x;
 
         if (index < blockDim.x*2)
+        {
             local_sum[index] += local_sum[index + stride];
+        }
 
         __syncthreads();
     }
@@ -149,7 +165,7 @@ int main(int argc, char** argv)
 
         exit(EXIT_SUCCESS);
     }
-    printf("CUDA - Redution algorithm\n");
+    printf("CUDA - Reduction algorithm\n");
 
     // Init Data Size 
     if (checkCmdLineFlag(argc, (const char**)argv, "dSize")) 
