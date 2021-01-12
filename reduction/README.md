@@ -11,6 +11,8 @@ The kernel used to create this sum is launched with the following arguments :
 
 Before lauching the kernel, we compute this sum on the host to compare the result witht the kernel output.
 
+You can directly run the program on the *lhcbgpu2* machine : `/home/valrev_cuda/labs/reduction/reduction.o -dSize=1024`
+
 ## Why the reduction algorithm is so vital, start from naming a few problems that represent this type of processing ?
 
 This type of algorithm is intended to be launch with very huge set of data. Running this using "conventional" method like on one thread composed of one *for* loop may take a huge amount of CPU clock. This type of algorithm has the advantage of drasticly reduce the number of iteration to compute the result. The fist thread will handle the most computation but the greater the index, the lower the intensity of workload will be necessary. For an array with 2^N elements, there will be only N steps to get the sum of all elements againts 2^N for a "conventional" *for* loop.

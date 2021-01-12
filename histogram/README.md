@@ -10,6 +10,7 @@ The kernel used to create the histogram is run two times :
 
 At the end, we compare both histograms, the process time and the performances.
 
+You can directly run the program on the *lhcbgpu2* machine : `/home/valrev_cuda/labs/histogram/histogram.o -dSize=1024`
 ## Memory movements
 
 1) In order to acheive computation of the two histograms, we need three arrays hosted on the **HOST** :
