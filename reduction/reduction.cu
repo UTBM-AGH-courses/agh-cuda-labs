@@ -56,13 +56,13 @@ void reductionKernel(unsigned int *data, unsigned int dataSize, unsigned int* gl
 
     __syncthreads();
 
-    for (unsigned int stride = 1; stride < blockDim.x*2; stride *= 2)
+    for (unsigned int stride = 1; stride < blockDim.x; stride *= 2)
     {
-        int index = 2 * stride * threadIdx.x;
+        int index = stride * threadIdx.x;
 
-        if (index < blockDim.x*2)
+        if (index < blockDim.x)
         {
-            local_sum[index] += local_sum[index + stride];
+            atomicAdd(&local_sum[index], local_sum[index + stride]);
         }
         __syncthreads();
     }
