@@ -47,6 +47,10 @@ The use `__syncthreads()` help us quite well because exept for the last operatio
 
 ## Think in a more abstract way about the reduction algorithm. Does the operation being parallelised need to be commutative?
 
-The operations don't have to be commutative. In deed during the execution, each thread will wait each other before executing the n+1 operation. The execution order will be always the same according to our stride defintion, the *for* loop and each blocks work on different parts of the array.
+The operations have to be commutatives (+ or x). In fact, if we try to substracts every elements of an array, the result will be wrong :
 
-If we have to make commutative, I would say that it's may be very long and complicated to implement with not a substantial gain in term of performances.
+ 3   4   5   7
+-1      -2
+ 1
+ 
+ Here the last operation gave us **1** but the correct resilt is *3-4-5-7=-13*
