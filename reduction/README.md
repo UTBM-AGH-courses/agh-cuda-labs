@@ -49,8 +49,8 @@ The use `__syncthreads()` help us quite well because exept for the last operatio
 
 The operations have to be commutatives (+ or x). In fact, if we try to substracts every elements of an array, the result will be wrong :
 
- 3   4   5   7
--1      -2
- 1
+ 3   4   5   7 \
+-1      -2 \
+ 1 \
  
  Here the last operation gave us **1** but the correct resilt is *3-4-5-7=-13*
